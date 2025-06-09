@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dummy Download Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f4f4f4;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            background-color: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+            transition: background-color 0.3s ease;
+            background-color: #008CBA;
+            color: white;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        #status {
+            margin-top: 20px;
+            font-weight: bold;
+            color: #555;
+        }
+        /* Message Box Modal Styles */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .modal.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+            transform: translateY(-20px);
+            transition: transform 0.3s ease;
+        }
+        .modal.show .modal-content {
+            transform: translateY(0);
+        }
+        .modal-header {
+            font-size: 1.25rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+            color: #333;
+        }
+        .modal-body {
+            margin-bottom: 1.5rem;
+            color: #555;
+        }
+        .modal-footer button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            background-color: #008CBA;
+            color: white;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Dummy Download Test</h1>
+        <p>This page attempts to download a small, silent WAV file generated in JavaScript.</p>
+        <button id="downloadDummyBtn">Attempt Download</button>
+        <p id="status">Status: Ready</p>
+    </div>
+
+    <div id="message-box" class="modal">
+        <div class="modal-content">
+            <div class="modal-header" id="message-header"></div>
+            <div class="modal-body" id="message-content"></div>
+            <div class="modal-footer">
+                <button id="message-ok-btn">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const downloadDummyBtn = document.getElementById('downloadDummyBtn');
+        const statusDisplay = document.getElementById('status');
+
+        // Modal elements
+        const messageBox = document.getElementById('message-box');
+        const messageHeader = document.getElementById('message-header');
+        const messageContent = document.getElementById('message-content');
+        const messageOkBtn = document.getElementById('message-ok-btn');
+
+        /**
+         * Displays a custom modal message box.
+         * @param {string} title - The title of the message box.
+         * @param {string} message - The content message.
+         */
+        function showMessageBox(title, message) {
+            messageHeader.textContent = title;
+            messageContent.textContent = message;
+            messageBox.classList.add('show');
+        }
+
+        /**
+         * Hides the custom modal message box.
+         */
+        function hideMessageBox() {
+            messageBox.classList.remove('show');
+        }
+
+        messageOkBtn.addEventListener('click', hideMessageBox);
+
+        // Function to create a minimal silent WAV file header + data
+        function createSilentWavBlob() {
+            const sampleRate = 16000; // Hz
+            const numChannels = 1;    // Mono
+            const bitDepth = 16;      // 16-bit
+            const duration = 1;       // seconds
+            const numSamples = sampleRate * duration;
+            
+            const bytesPerSample = bitDepth / 8; // 2 bytes for 16-bit
+            const byteRate = sampleRate * numChannels * bytesPerSample; // 16000 * 1 * 2 = 32000
+            const blockAlign = numChannels * bytesPerSample; // 1 * 2 = 2
+
+            const dataSize = numSamples * numChannels * bytesPerSample; // 16000 * 1 * 2 = 32000
+            
+            // Total size of the ArrayBuffer needed:
+            // RIFF (12 bytes) + FMT (24 bytes) + DATA (8 bytes) + actual audio data
+            const totalBufferSize = 12 + 24 + 8 + dataSize; 
+
+            const buffer = new ArrayBuffer(totalBufferSize);
+            const view = new DataView(buffer);
+
+            let offset = 0;
+
+            // RIFF chunk descriptor
+            writeString(view, offset, 'RIFF'); offset += 4;
+            view.setUint32(offset, totalBufferSize - 8, true); offset += 4; // ChunkSize (total file size - 8)
+            writeString(view, offset, 'WAVE'); offset += 4;
+
+            // FMT sub-chunk
+            writeString(view, offset, 'fmt '); offset += 4;
+            view.setUint32(offset, 16, true); offset += 4; // Subchunk1Size (16 for PCM)
+            view.setUint16(offset, 1, true); offset += 2; // AudioFormat (1 = PCM)
+            view.setUint16(offset, numChannels, true); offset += 2;
+            view.setUint32(offset, sampleRate, true); offset += 4;
+            view.setUint32(offset, byteRate, true); offset += 4;
+            view.setUint16(offset, blockAlign, true); offset += 2;
+            view.setUint16(offset, bitDepth, true); offset += 2;
+
+            // DATA sub-chunk
+            writeString(view, offset, 'data'); offset += 4;
+            view.setUint32(offset, dataSize, true); offset += 4;
+
+            // Write silent audio data (zeros)
+            for (let i = 0; i < numSamples; i++) {
+                view.setInt16(offset, 0, true); // 0 for silence
+                offset += bytesPerSample; // Increment by 2 bytes for 16-bit
+            }
+            
+            console.log("WAV Blob generated. Final offset:", offset, "Expected totalBufferSize:", totalBufferSize); // Added logging
+
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        downloadDummyBtn.addEventListener('click', () => {
+            statusDisplay.textContent = 'Status: Attempting download...';
+            console.log("Attempting to generate and download dummy WAV.");
+
+            const dummyBlob = createSilentWavBlob();
+            console.log("Dummy Blob created. Size:", dummyBlob.size, "Type:", dummyBlob.type);
+
+            if (dummyBlob.size === 0) {
+                statusDisplay.textContent = 'Status: Failed to create dummy audio data.';
+                showMessageBox("Error", "Failed to create dummy audio data (Blob size is 0).");
+                console.error("Dummy Blob size is 0.");
+                return;
+            }
+
+            const url = URL.createObjectURL(dummyBlob);
+            const filename = 'dummy_silent_audio.wav';
+
+            console.log("Download URL:", url);
+            console.log("Download Filename:", filename);
+
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+
+            try {
+                a.click(); // Programmatically click the link
+                statusDisplay.textContent = 'Status: Download initiated.';
+                showMessageBox("Download Initiated", "Check your browser's download bar/folder for 'dummy_silent_audio.wav'.");
+                console.log("Programmatic click successful.");
+            } catch (e) {
+                statusDisplay.textContent = 'Status: Programmatic download failed.';
+                showMessageBox("Download Failed", "Programmatic download was blocked. Your browser might require direct user interaction to download. Check console for details.");
+                console.error("Programmatic download failed:", e);
+            } finally {
+                document.body.removeChild(a); // Clean up the temporary link
+                // URL.revokeObjectURL(url); // Don't revoke immediately, might interfere with download
+            }
+        });
+
+        // Initialize status
+        statusDisplay.textContent = 'Status: Ready';
+    </script>
+</body>
+</html>
+

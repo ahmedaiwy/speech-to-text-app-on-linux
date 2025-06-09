@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech to Text App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f4f4f4;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            background-color: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 800px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s ease;
+            white-space: nowrap;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        /* Specific button styles for initial state and active/inactive */
+        #startListeningBtn {
+            background-color: #4CAF50; /* Green for active/ready */
+            color: white;
+        }
+        #startListeningBtn:disabled {
+            background-color: #a5d6a7; /* Lighter green/gray for disabled */
+            cursor: not-allowed;
+        }
+        #stopListeningBtn {
+            background-color: #f44336; /* Red for active/ready */
+            color: white;
+        }
+        #stopListeningBtn:disabled {
+            background-color: #ef9a9a; /* Lighter red/gray for disabled */
+            cursor: not-allowed;
+        }
+        #toggleOnlineModeBtn {
+            background-color: #008CBA; /* Blue for active/ready */
+            color: white;
+        }
+        #toggleOnlineModeBtn.active { /* Class for active state for toggles */
+            background-color: #005f7a; /* Darker blue when active */
+        }
+        #toggleSaveToFileBtn {
+            background-color: #ff9800; /* Orange for active/ready */
+            color: white;
+        }
+        #toggleSaveToFileBtn.active { /* Class for active state for toggles */
+            background-color: #e68a00; /* Darker orange when active */
+        }
+        #copyToClipboardBtn {
+            background-color: #555555;
+            color: white;
+        }
+        #downloadModelBtn, #showRequirementsBtn { /* Default button style for these */
+            background-color: #607d8b; /* Blue-gray */
+            color: white;
+        }
+        select, input[type="text"] {
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+            font-size: 16px;
+            width: 100%;
+            box-sizing: border-box;
+            margin-bottom: 10px;
+        }
+        .output-area {
+            background-color: #e9e9e9;
+            border-radius: 5px;
+            padding: 15px;
+            min-height: 150px;
+            max-height: 400px; /* Limit height for scroll */
+            overflow-y: auto; /* Enable scrolling */
+            border: 1px solid #ddd;
+            margin-bottom: 15px;
+            word-wrap: break-word; /* Ensure long words wrap */
+            white-space: pre-wrap; /* Preserve whitespace and allow wrapping */
+        }
+        .status-message {
+            margin-top: 10px;
+            font-size: 1em;
+            color: #333;
+            text-align: center;
+        }
+        .model-section {
+            margin-top: 20px;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+        .model-requirements {
+            background-color: #e0f7fa;
+            border: 1px solid #b2ebf2;
+            border-radius: 5px;
+            padding: 10px;
+            margin-top: 10px;
+            font-size: 0.9em;
+            color: #006064;
+            white-space: pre-wrap; /* Preserve line breaks */
+        }
+        /* New LLM Feature Styles */
+        .llm-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 20px;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+        .llm-output-area {
+            background-color: #f0f9ff; /* Lighter blue */
+            border-radius: 5px;
+            padding: 15px;
+            min-height: 100px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #a7d9f7; /* Matching border */
+            margin-top: 15px;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        .llm-output-area h2 {
+            margin-top: 0;
+            color: #0056b3;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+        }
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+            display: none; /* Hidden by default */
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        /* LLM button specific styles */
+        #summarizeBtn, #extractActionsBtn {
+            background-color: #673ab7; /* Deep Purple */
+            color: white;
+        }
+        #summarizeBtn:hover, #extractActionsBtn:hover {
+            background-color: #5e35b1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Speech to Text App</h1>
+
+        <div class="output-area" id="transcriptOutput">
+            Transcript:
+        </div>
+
+        <div class="status-message" id="micStatus">
+            Microphone Status: Idle
+        </div>
+        <div class="status-message" id="onlineModeStatus">
+            Mode: Offline
+        </div>
+        <div class="status-message" id="saveToFileStatus">
+            Saving: OFF
+        </div>
+
+        <div class="controls">
+            <button id="startListeningBtn">Start Listening</button>
+            <button id="stopListeningBtn" disabled>Stop Listening</button>
+            <button id="toggleOnlineModeBtn">Go Online</button>
+            <button id="toggleSaveToFileBtn">Save to File: OFF</button>
+            <button id="copyToClipboardBtn">Copy Last Phrase to Clipboard</button>
+        </div>
+
+        <div class="model-section">
+            <h2>Model Selection</h2>
+            <select id="modelSelect">
+                </select>
+            <button id="downloadModelBtn">Download Selected Model</button>
+            <button id="showRequirementsBtn">Show Model Requirements</button>
+            <div class="model-requirements" id="modelRequirements">
+                </div>
+        </div>
+
+        <div class="llm-controls">
+            <button id="summarizeBtn">✨ Summarize Text</button>
+            <button id="extractActionsBtn">✨ Extract Action Items</button>
+        </div>
+        <div class="loading-spinner" id="llmLoadingSpinner"></div>
+        <div class="llm-output-area" id="llmOutput">
+            <h2>AI Assistant Output</h2>
+            </div>
+        </div>
+
+    <script>
+        const startListeningBtn = document.getElementById('startListeningBtn');
+        const stopListeningBtn = document.getElementById('stopListeningBtn');
+        const toggleOnlineModeBtn = document.getElementById('toggleOnlineModeBtn');
+        const toggleSaveToFileBtn = document.getElementById('toggleSaveToFileBtn');
+        const copyToClipboardBtn = document.getElementById('copyToClipboardBtn');
+        const transcriptOutput = document.getElementById('transcriptOutput');
+        const micStatus = document.getElementById('micStatus');
+        const onlineModeStatus = document.getElementById('onlineModeStatus');
+        const saveToFileStatus = document.getElementById('saveToFileStatus');
+        const modelSelect = document.getElementById('modelSelect');
+        const downloadModelBtn = document.getElementById('downloadModelBtn');
+        const showRequirementsBtn = document.getElementById('showRequirementsBtn');
+        const modelRequirementsDiv = document.getElementById('modelRequirements');
+
+        // New LLM elements
+        const summarizeBtn = document.getElementById('summarizeBtn');
+        const extractActionsBtn = document.getElementById('extractActionsBtn');
+        const llmOutput = document.getElementById('llmOutput');
+        const llmLoadingSpinner = document.getElementById('llmLoadingSpinner');
+
+
+        let mediaRecorder;
+        let audioStream;
+        let audioChunks = [];
+        let recognitionActive = false;
+        let onlineMode = false; // Tracks current mode on client-side
+        let saveToFile = false; // Tracks save to file state
+        let currentModel = 'Small English Model'; // Default model
+        let currentLastPhrase = ''; // Stores the last recognized phrase
+
+        // Removed INACTIVITY_THRESHOLD_MS and related timers as we're now recording full sessions.
+
+        const API_BASE_URL = window.location.origin;
+
+        // --- Model Management ---
+        const models = {
+            "Large English Model": "Size: ~1 GB",
+            "Medium English Model": "Size: ~500 MB",
+            "Small English Model": "Size: <100 MB",
+            "Spanish": "Size: ~700 MB",
+            "German": "Size: ~800 MB",
+        };
+
+        function populateModels() {
+            for (const modelName in models) {
+                const option = document.createElement('option');
+                option.value = modelName;
+                option.textContent = modelName;
+                modelSelect.appendChild(option);
+            }
+            modelSelect.value = currentModel; // Set default selection
+        }
+
+        async function parseJsonResponse(response) {
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+                return await response.json();
+            } else {
+                const errorText = await response.text();
+                throw new Error(`Server returned non-JSON response: ${errorText}`);
+            }
+        }
+
+        async function fetchModelRequirements(modelName) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/get_model_requirements_web?model_name=${encodeURIComponent(modelName)}`, {
+                    method: 'GET'
+                });
+                const data = await parseJsonResponse(response);
+                if (response.ok) {
+                    modelRequirementsDiv.textContent = data.requirements;
+                } else {
+                    modelRequirementsDiv.textContent = `Error: ${data.error}`;
+                }
+            } catch (error) {
+                console.error("Error fetching model requirements:", error);
+                modelRequirementsDiv.textContent = `Error fetching requirements: ${error.message}`;
+            }
+        }
+
+        modelSelect.addEventListener('change', (event) => {
+            currentModel = event.target.value;
+            fetchModelRequirements(currentModel);
+        });
+
+        downloadModelBtn.addEventListener('click', async () => {
+            downloadModelBtn.disabled = true;
+            modelSelect.disabled = true;
+            const modelName = modelSelect.value;
+            micStatus.textContent = `Downloading ${modelName}... Please wait.`;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/download_model`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model_name: modelName })
+                });
+
+                const data = await parseJsonResponse(response);
+
+                if (response.ok) {
+                    micStatus.textContent = data.message;
+                } else {
+                    micStatus.textContent = `Download Error: ${data.error}`;
+                }
+            } catch (error) {
+                console.error("Download failed:", error);
+                micStatus.textContent = `Download failed: ${error.message}`;
+            } finally {
+                downloadModelBtn.disabled = false;
+                modelSelect.disabled = false;
+                updateMicStatus(); // Reset status
+            }
+        });
+
+        showRequirementsBtn.addEventListener('click', () => {
+            fetchModelRequirements(modelSelect.value);
+        });
+
+        // --- Microphone and Recording ---
+
+        async function startRecording() {
+            if (recognitionActive) return;
+
+            try {
+                audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                micStatus.textContent = 'Microphone Status: Recording...';
+                
+                // Update button states and colors
+                startListeningBtn.disabled = true;
+                startListeningBtn.style.backgroundColor = '#a5d6a7'; /* Disabled green */
+                stopListeningBtn.disabled = false;
+                stopListeningBtn.style.backgroundColor = '#f44336'; /* Active red */
+
+                toggleOnlineModeBtn.disabled = true; // Disable mode change during listening
+                modelSelect.disabled = true;
+                downloadModelBtn.disabled = true;
+                showRequirementsBtn.disabled = true;
+
+                // --- MediaRecorder configuration for robust audio chunks ---
+                // Check for supported MIME types for maximum compatibility
+                let selectedMimeType = '';
+                const possibleMimeTypes = [
+                    'audio/webm;codecs=opus',
+                    'audio/ogg;codecs=opus',
+                    'audio/webm',
+                    'audio/ogg'
+                ];
+                for (const type of possibleMimeTypes) {
+                    if (MediaRecorder.isTypeSupported(type)) {
+                        selectedMimeType = type;
+                        break;
+                    }
+                }
+
+                if (!selectedMimeType) {
+                    throw new Error("No supported audio recording MIME type found by browser.");
+                }
+
+                mediaRecorder = new MediaRecorder(audioStream, { mimeType: selectedMimeType });
+                console.log(`MediaRecorder initialized with MIME type: ${mediaRecorder.mimeType}`);
+
+
+                mediaRecorder.ondataavailable = (event) => {
+                    // Accumulate all data chunks
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                        console.log(`Audio chunk received, size: ${event.data.size}, total chunks: ${audioChunks.length}`); // Debug log
+                    } else {
+                        console.warn("Received empty audio chunk from MediaRecorder (ondataavailable)."); // Debug log
+                    }
+                };
+
+                mediaRecorder.onstop = async () => {
+                    console.log("MediaRecorder stopped.");
+                    console.log(`Total audio chunks collected: ${audioChunks.length}`); // Debug log
+                    if (audioStream) {
+                        audioStream.getTracks().forEach(track => track.stop()); // Stop microphone access
+                        audioStream = null;
+                    }
+                    recognitionActive = false;
+                    
+                    // Reset button states and colors after stopping
+                    startListeningBtn.disabled = false;
+                    startListeningBtn.style.backgroundColor = '#4CAF50'; /* Active green */
+                    stopListeningBtn.disabled = true;
+                    stopListeningBtn.style.backgroundColor = '#ef9a9a'; /* Disabled red */
+
+                    toggleOnlineModeBtn.disabled = false;
+                    modelSelect.disabled = false;
+                    downloadModelBtn.disabled = false;
+                    showRequirementsBtn.disabled = false;
+
+                    if (audioChunks.length > 0) {
+                        micStatus.textContent = 'Microphone Status: Processing audio...';
+                        await sendFullAudioBlob(); // Send the accumulated audio as one blob
+                    } else {
+                        micStatus.textContent = 'Microphone Status: Idle (No audio recorded)';
+                        displayMessage('No audio was recorded.', 'info');
+                    }
+                    audioChunks = []; // Clear chunks after sending
+                };
+
+                mediaRecorder.onstart = () => {
+                    console.log("MediaRecorder started.");
+                    recognitionActive = true;
+                    micStatus.textContent = 'Microphone Status: Recording...';
+                };
+
+                mediaRecorder.onerror = (event) => {
+                    console.error("MediaRecorder Error:", event.error);
+                    micStatus.textContent = `Microphone Error: ${event.error.name} - ${event.error.message}`;
+                    stopRecording(); // Call stopRecording to reset buttons and states
+                    displayMessage(`Microphone Error: ${event.error.name} - ${event.error.message}`, 'error');
+                };
+                
+                mediaRecorder.start(1000); // Start recording with a 1-second timeslice
+                console.log("MediaRecorder started with 1-second timeslice.");
+
+            } catch (error) {
+                console.error('Error accessing microphone:', error);
+                micStatus.textContent = `Microphone Error: ${error.name} - ${error.message}. Please check permissions.`;
+                // Ensure buttons are reset if microphone access fails
+                startListeningBtn.disabled = false;
+                startListeningBtn.style.backgroundColor = '#4CAF50'; /* Active green */
+                stopListeningBtn.disabled = true;
+                stopListeningBtn.style.backgroundColor = '#ef9a9a'; /* Disabled red */
+                toggleOnlineModeBtn.disabled = false;
+                modelSelect.disabled = false;
+                downloadModelBtn.disabled = false;
+                showRequirementsBtn.disabled = false;
+                displayMessage(`Microphone Error: ${error.name} - ${error.message}. Please check permissions.`, 'error');
+            }
+        }
+
+        async function sendFullAudioBlob() {
+            if (audioChunks.length === 0) {
+                console.warn("sendFullAudioBlob called but audioChunks is empty."); // Debug log
+                return;
+            }
+
+            const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+            console.log(`Sending audio blob of type: ${audioBlob.type} and size: ${audioBlob.size} bytes.`); // Debug log
+            
+            const formData = new FormData();
+            // Use the actual MIME type from MediaRecorder for the filename extension
+            let fileExtension = 'webm'; // Default
+            if (mediaRecorder.mimeType.includes('ogg')) {
+                fileExtension = 'ogg';
+            } else if (mediaRecorder.mimeType.includes('mp4')) {
+                fileExtension = 'mp4';
+            }
+            formData.append('audio_data', audioBlob, `audio.${fileExtension}`);
+            formData.append('model_name', currentModel);
+            formData.append('online_mode', onlineMode ? 'true' : 'false'); 
+
+            try {
+                micStatus.textContent = 'Microphone Status: Sending audio for transcription...';
+                const response = await fetch(`${API_BASE_URL}/process_audio_chunk`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await parseJsonResponse(response);
+
+                if (response.ok) {
+                    if (data.transcript) {
+                        appendTranscript(data.transcript);
+                        currentLastPhrase = data.transcript;
+                        micStatus.textContent = 'Microphone Status: Transcription complete.';
+                        displayMessage('Transcription successful!', 'success');
+                    } else {
+                        micStatus.textContent = 'Microphone Status: Idle (No speech detected).';
+                        displayMessage('No speech detected in the recording.', 'info');
+                    }
+                } else {
+                    micStatus.textContent = `Transcription Error: ${data.error}`;
+                    console.error("Transcription Error:", data.error);
+                    displayMessage(`Transcription Error: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                console.error('Network or server error:', error);
+                micStatus.textContent = `Network Error: ${error.message}`;
+                displayMessage(`Network Error: ${error.message}`, 'error');
+            } finally {
+                // No need to clear audioChunks here, it's done in onstop
+            }
+        }
+
+        function stopRecording() {
+            if (!recognitionActive) return; // Only stop if currently recording
+
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                console.log("mediaRecorder.stop() called.");
+                // The onstop event handler will now manage button states and sending the audio
+            }
+        }
+
+        function appendTranscript(text) {
+            const currentContent = transcriptOutput.innerHTML.trim();
+            if (currentContent === "Transcript:") {
+                transcriptOutput.innerHTML = text;
+            } else {
+                transcriptOutput.innerHTML += "<br>" + text;
+            }
+            transcriptOutput.scrollTop = transcriptOutput.scrollHeight;
+        }
+
+        function updateMicStatus() {
+            if (recognitionActive) {
+                micStatus.textContent = 'Microphone Status: Recording...';
+            } else {
+                micStatus.textContent = 'Microphone Status: Idle';
+            }
+        }
+
+        // --- Auto-stop Timer (Removed for full session recording) ---
+        // The inactivity timer logic is removed as it's not applicable to full session recording.
+
+        // --- Other Controls ---
+        toggleOnlineModeBtn.addEventListener('click', async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/toggle_online_mode_web`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await parseJsonResponse(response);
+                if (response.ok) {
+                    onlineMode = (data.status === 'online');
+                    toggleOnlineModeBtn.textContent = onlineMode ? 'Go Offline' : 'Go Online';
+                    onlineModeStatus.textContent = `Mode: ${onlineMode ? 'Online' : 'Offline'}`;
+                    micStatus.textContent = data.message;
+                    // Toggle 'active' class for visual feedback
+                    toggleOnlineModeBtn.classList.toggle('active', onlineMode);
+                } else {
+                    micStatus.textContent = `Error: ${data.error}`;
+                }
+            } catch (error) {
+                console.error(`Network or server error for online mode toggle: ${error}`);
+                micStatus.textContent = `Error: Could not toggle online mode.`;
+            }
+        });
+
+        toggleSaveToFileBtn.addEventListener('click', async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/toggle_save_to_file_web`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const data = await parseJsonResponse(response);
+                if (response.ok) {
+                    saveToFile = (data.status === 'on');
+                    toggleSaveToFileBtn.textContent = saveToFile ? 'Save to File: ON' : 'Save to File: OFF';
+                    saveToFileStatus.textContent = `Saving: ${saveToFile ? 'ON' : 'OFF'}`;
+                    micStatus.textContent = data.message;
+                    // Toggle 'active' class for visual feedback
+                    toggleSaveToFileBtn.classList.toggle('active', saveToFile);
+                } else {
+                    micStatus.textContent = `Error: ${data.error}`;
+                }
+            } catch (error) {
+                console.error(`Network or server error for save to file toggle: ${error}`);
+                micStatus.textContent = `Error: Could not toggle save to file.`;
+            }
+        });
+
+        copyToClipboardBtn.addEventListener('click', () => {
+            if (currentLastPhrase) {
+                navigator.clipboard.writeText(currentLastPhrase)
+                    .then(() => {
+                        console.log('Last recognized phrase copied to clipboard!');
+                        displayMessage('Last recognized phrase copied to clipboard!', 'info');
+                    })
+                    .catch(err => {
+                        console.error('Failed to copy text: ', err);
+                        displayMessage('Failed to copy text. Your browser might require user interaction or secure context.', 'error');
+                    });
+            } else {
+                console.log('No text has been recognized yet to copy.');
+                displayMessage('No text has been recognized yet to copy.', 'info');
+            }
+        });
+
+        // Helper for displaying temporary messages (replaces alert)
+        function displayMessage(message, type = 'info') {
+            const messageDiv = document.createElement('div');
+            messageDiv.textContent = message;
+            messageDiv.style.cssText = `
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                padding: 10px 20px;
+                border-radius: 5px;
+                color: white;
+                font-weight: bold;
+                z-index: 1000;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            `;
+            if (type === 'error') {
+                messageDiv.style.backgroundColor = '#f44336';
+            } else if (type === 'info') {
+                messageDiv.style.backgroundColor = '#008CBA';
+            }
+            document.body.appendChild(messageDiv);
+            setTimeout(() => {
+                messageDiv.remove();
+            }, 3000); // Remove after 3 seconds
+        }
+
+
+        // --- NEW LLM FEATURE FUNCTIONS ---
+        async function processLLMRequest(endpoint, outputElement, loadingSpinner, promptType) {
+            const textToProcess = transcriptOutput.textContent.replace('Transcript:', '').trim();
+
+            if (!textToProcess) {
+                displayMessage(`No transcribed text to ${promptType}.`, 'info');
+                return;
+            }
+
+            outputElement.innerHTML = `<h2>AI Assistant Output</h2>`; // Clear previous output
+            loadingSpinner.style.display = 'block'; // Show spinner
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: textToProcess })
+                });
+
+                const data = await parseJsonResponse(response);
+
+                if (response.ok) {
+                    let resultText = "";
+                    if (endpoint === 'summarize_text') {
+                        resultText = data.summary;
+                    } else if (endpoint === 'extract_action_items') {
+                        resultText = data.action_items;
+                    }
+                    outputElement.innerHTML = `<h2>AI Assistant Output (${promptType})</h2><p>${resultText}</p>`;
+                } else {
+                    outputElement.innerHTML = `<h2>AI Assistant Output (Error)</h2><p>Error: ${data.error || 'Unknown error'}</p>`;
+                    console.error(`LLM ${promptType} Error:`, data.error);
+                }
+            } catch (error) {
+                outputElement.innerHTML = `<h2>AI Assistant Output (Error)</h2><p>Network or server error: ${error.message}</p>`;
+                console.error(`LLM ${promptType} Network Error:`, error);
+            } finally {
+                loadingSpinner.style.display = 'none'; // Hide spinner
+                outputElement.scrollTop = outputElement.scrollHeight; // Scroll to bottom
+            }
+        }
+
+        summarizeBtn.addEventListener('click', () => {
+            processLLMRequest('summarize_text', llmOutput, llmLoadingSpinner, 'Summary');
+        });
+
+        extractActionsBtn.addEventListener('click', () => {
+            processLLMRequest('extract_action_items', llmOutput, llmLoadingSpinner, 'Action Items');
+        });
+        // --- END NEW LLM FEATURE FUNCTIONS ---
+
+
+        // Initialize on page load
+        window.onload = async () => {
+            populateModels();
+            fetchModelRequirements(modelSelect.value); 
+            
+            // Set initial button states and colors
+            startListeningBtn.disabled = false;
+            startListeningBtn.style.backgroundColor = '#4CAF50'; /* Green */
+            stopListeningBtn.disabled = true;
+            stopListeningBtn.style.backgroundColor = '#ef9a9a'; /* Disabled red */
+
+            try {
+                const modeResponse = await fetch(`${API_BASE_URL}/get_online_mode_status`);
+                const modeData = await parseJsonResponse(modeResponse);
+                if (modeResponse.ok) {
+                    onlineMode = (modeData.status === 'online');
+                    toggleOnlineModeBtn.textContent = onlineMode ? 'Go Offline' : 'Go Online';
+                    onlineModeStatus.textContent = `Mode: ${onlineMode ? 'Online' : 'Offline'}`;
+                    toggleOnlineModeBtn.classList.toggle('active', onlineMode); // Set active class
+                } else {
+                    console.error("Failed to fetch initial online mode status:", modeData.error);
+                    micStatus.textContent = `Error initializing online mode: ${modeData.error}`;
+                }
+
+                const saveResponse = await fetch(`${API_BASE_URL}/get_save_to_file_status`);
+                const saveData = await parseJsonResponse(saveResponse);
+                if (saveResponse.ok) {
+                    saveToFile = (saveData.status === 'on');
+                    toggleSaveToFileBtn.textContent = saveToFile ? 'Save to File: ON' : 'Save to File: OFF';
+                    saveToFileStatus.textContent = `Saving: ${saveToFile ? 'ON' : 'OFF'}`;
+                    toggleSaveToFileBtn.classList.toggle('active', saveToFile); // Set active class
+                } else {
+                    console.error("Failed to fetch initial save to file status:", saveData.error);
+                    micStatus.textContent = `Error initializing save to file: ${saveData.error}`;
+                }
+
+            } catch (error) {
+                console.error("Failed to fetch initial status:", error);
+                micStatus.textContent = `Error initializing app status: ${error.message}`;
+            }
+        };
+
+        startListeningBtn.addEventListener('click', startRecording);
+        stopListeningBtn.addEventListener('click', stopRecording);
+
+    </script>
+</body>
+</html>
+

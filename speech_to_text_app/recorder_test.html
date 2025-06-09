@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Web Audio Recorder</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f4f4f4;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            background-color: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            opacity: 0.9;
+        }
+        #startBtn {
+            background-color: #4CAF50;
+            color: white;
+        }
+        #stopBtn {
+            background-color: #f44336;
+            color: white;
+        }
+        #downloadBtn {
+            background-color: #008CBA;
+            color: white;
+            display: none; /* Hidden until recording is available */
+        }
+        #status {
+            margin-top: 20px;
+            font-weight: bold;
+            color: #555;
+        }
+        /* Message Box Modal Styles (reusing from main app for consistency) */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .modal.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+            transform: translateY(-20px);
+            transition: transform 0.3s ease;
+        }
+        .modal.show .modal-content {
+            transform: translateY(0);
+        }
+        .modal-header {
+            font-size: 1.25rem;
+            font-weight: bold;
+            margin-bottom: 1rem;
+            color: #333;
+        }
+        .modal-body {
+            margin-bottom: 1.5rem;
+            color: #555;
+        }
+        .modal-footer button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            background-color: #008CBA;
+            color: white;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Simple Audio Recorder</h1>
+        <button id="startBtn">Start Recording</button>
+        <button id="stopBtn" disabled>Stop Recording</button>
+        <button id="downloadBtn">Download Recording</button>
+        <p id="status">Status: Idle</p>
+    </div>
+
+    <div id="message-box" class="modal">
+        <div class="modal-content">
+            <div class="modal-header" id="message-header"></div>
+            <div class="modal-body" id="message-content"></div>
+            <div class="modal-footer">
+                <button id="message-ok-btn">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const statusDisplay = document.getElementById('status');
+
+        // Modal elements
+        const messageBox = document.getElementById('message-box');
+        const messageHeader = document.getElementById('message-header');
+        const messageContent = document.getElementById('message-content');
+        const messageOkBtn = document.getElementById('message-ok-btn');
+
+        let mediaRecorder;
+        let audioChunks = [];
+        let audioBlob = null; // To store the final recorded blob
+
+        /**
+         * Displays a custom modal message box.
+         * @param {string} title - The title of the message box.
+         * @param {string} message - The content message.
+         */
+        function showMessageBox(title, message) {
+            messageHeader.textContent = title;
+            messageContent.textContent = message;
+            messageBox.classList.add('show');
+        }
+
+        /**
+         * Hides the custom modal message box.
+         */
+        function hideMessageBox() {
+            messageBox.classList.remove('show');
+        }
+
+        // Check for MediaRecorder support
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+            statusDisplay.textContent = "Error: MediaRecorder API not supported in this browser.";
+            startBtn.disabled = true;
+            stopBtn.disabled = true;
+            showMessageBox("Browser Error", "MediaRecorder API not supported in this browser. Please use a modern browser like Chrome or Firefox.");
+        }
+
+        startBtn.addEventListener('click', async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                let mimeType = 'audio/webm';
+                if (!MediaRecorder.isTypeSupported(mimeType)) {
+                    mimeType = 'audio/ogg';
+                    if (!MediaRecorder.isTypeSupported(mimeType)) {
+                        statusDisplay.textContent = "Error: No supported audio format found for MediaRecorder.";
+                        startBtn.disabled = true;
+                        showMessageBox("Audio Format Error", "No supported audio format found for MediaRecorder. Your browser might not support common audio recording formats.");
+                        return;
+                    }
+                }
+
+                mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+                audioChunks = [];
+                audioBlob = null; // Reset previous recording
+
+                mediaRecorder.ondataavailable = event => {
+                    console.log("ondataavailable event.data.size:", event.data.size); // LOGGING ADDED
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    } else {
+                        console.warn("Received empty audio chunk from MediaRecorder.");
+                    }
+                };
+
+                mediaRecorder.onstop = () => {
+                    console.log("MediaRecorder stopped.");
+                    console.log("Total audioChunks collected:", audioChunks.length); // LOGGING ADDED
+
+                    // Create a Blob from all recorded chunks
+                    audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+                    console.log("Final audioBlob size:", audioBlob.size); // LOGGING ADDED
+                    
+                    if (audioBlob.size === 0) {
+                        statusDisplay.textContent = 'Status: Recording stopped. No audio data captured.';
+                        showMessageBox("No Audio Captured", "Recording stopped, but no audio data was captured. Please check your microphone and browser permissions.");
+                        downloadBtn.style.display = 'none'; // Hide download button
+                    } else {
+                        const url = URL.createObjectURL(audioBlob);
+                        downloadBtn.href = url;
+                        downloadBtn.download = `recorded_audio.${mediaRecorder.mimeType.split('/')[1].split(';')[0]}`;
+                        downloadBtn.style.display = 'block';
+                        statusDisplay.textContent = 'Status: Recording stopped. Download available.';
+
+                        console.log("Download URL:", downloadBtn.href);
+                        console.log("Download Filename:", downloadBtn.download);
+                        showMessageBox("Download Ready", "Recording stopped. Please click the 'Download Recording' button to save the file.");
+                    }
+
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                mediaRecorder.onerror = event => {
+                    statusDisplay.textContent = `Error: ${event.error.name} - ${event.error.message}`;
+                    console.error("MediaRecorder Error:", event.error);
+                    startBtn.disabled = false;
+                    stopBtn.disabled = true;
+                    downloadBtn.style.display = 'none';
+                    stream.getTracks().forEach(track => track.stop());
+                    showMessageBox("Recording Error", `An error occurred during recording: ${event.error.name} - ${event.error.message}`);
+                };
+
+                mediaRecorder.start(1000); // Record in 1-second chunks
+                statusDisplay.textContent = 'Status: Recording...';
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                downloadBtn.style.display = 'none';
+
+            } catch (error) {
+                statusDisplay.textContent = `Error accessing microphone: ${error.name} - ${error.message}. Please check permissions.`;
+                console.error('Microphone access error:', error);
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                downloadBtn.style.display = 'none';
+                showMessageBox("Microphone Access Error", `Error accessing microphone: ${error.name} - ${error.message}. Please ensure you have granted permission.`);
+            }
+        });
+
+        stopBtn.addEventListener('click', () => {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        });
+
+        // Initialize button states
+        stopBtn.disabled = true;
+        downloadBtn.style.display = 'none';
+
+        // Event listener for modal OK button
+        messageOkBtn.addEventListener('click', hideMessageBox);
+    </script>
+</body>
+</html>
+
