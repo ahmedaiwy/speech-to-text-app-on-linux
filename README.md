@@ -12,7 +12,7 @@ Once you've run the installation script, you'll have these important files in yo
 
 install.sh: The script you just ran to set everything up.
 speech_to_text_backend.py: This is the "brain" of your app. It's a Python program that handles the speech recognition and AI tasks.
-index.html: This is the "face" of your app. It's a web page you'll open in your browser to interact with the app.
+index.html: This is the "face" of your app. It's a web page you'll open in your browser to interact with the app,and  or a beautiful gui interface using pyqt5.
 vosk_models/: A folder where your downloaded offline speech recognition models will be stored.
 .venv/: A special folder that holds all the Python tools your app needs, keeping them separate from other Python projects on your system.
 uninstall.py: A helpful script to remove the entire application if you ever need to.
