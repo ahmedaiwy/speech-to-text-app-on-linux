@@ -229,13 +229,8 @@ def process_audio_chunk_web():
         try:
             # pydub will now attempt to decode the specific input format
             audio = AudioSegment.from_file(input_temp_path, format=input_format)
-            
-            # --- CRITICAL FIX: Explicitly set sample_width and channels for Vosk compatibility ---
-            audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2) # 16kHz, mono, 16-bit
-            # ----------------------------------------------------------------------------------
-            
+            audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
             audio.export(wav_temp_path, format="wav")
-            print(f"Web: Converted audio to WAV at {wav_temp_path} (16kHz, 1 channel, 16-bit).") # Debug log
         except CouldntDecodeError as e:
             print(f"Web: pydub CouldntDecodeError (audio conversion): {e}. Ensure ffmpeg/libav is installed and in PATH.")
             return jsonify({"error": f"Audio conversion failed: {e}. Ensure ffmpeg/libav is installed and in PATH."}), 500
@@ -255,7 +250,6 @@ def process_audio_chunk_web():
             except sr.UnknownValueError:
                 transcript = ""
                 is_speech_detected = False
-                print("Web: Online: Could not understand audio (no speech detected or ambiguous).") # Debug log
             except sr.RequestError as e:
                 print(f"Web: Online recognition failed for chunk: {e}")
                 return jsonify({"error": f"Online recognition failed for chunk: {e}"}), 500
@@ -273,10 +267,8 @@ def process_audio_chunk_web():
                     return jsonify({"error": f"Failed to load Vosk model on server: {str(e)}"}), 500
 
             wf = wave.open(wav_temp_path, "rb")
-            # Vosk expects 16kHz, 16-bit, mono. We ensure this with pydub, but a final check is good.
             if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getframerate() != 16000:
                 wf.close()
-                print(f"Web: WAV format mismatch for Vosk: channels={wf.getnchannels()}, sampwidth={wf.getsampwidth()}, framerate={wf.getframerate()}") # Debug log
                 return jsonify({"error": "Converted audio chunk must be WAV format, mono, 16-bit, 16kHz for Vosk."}), 400
 
             recognizer = KaldiRecognizer(flask_vosk_models[vosk_model_path], wf.getframerate())
@@ -292,8 +284,6 @@ def process_audio_chunk_web():
                 partial_result_json = json.loads(recognizer.PartialResult())
                 partial_text = partial_result_json.get('partial', '').strip()
                 is_speech_detected = bool(partial_text)
-                if partial_text:
-                    print(f"Web: Partial recognized text (offline): {partial_text}") # Debug log
 
             wf.close()
         
@@ -530,655 +520,642 @@ class SystemRequirements:
             # Don't raise here, as ffmpeg itself seems fine. The pydub error might be transient.
             # The actual conversion will still use the set path.
 
-        @staticmethod
-        def check_audio_device():
-            if PYQT_AVAILABLE: # Only check audio device for GUI mode
-                try:
-                    p = pyaudio.PyAudio()
-                    device_count = p.get_device_count()
-                    found_device = False
-                    for i in range(device_count):
-                        device_info = p.get_device_by_index(i)
-                        if device_info['maxInputChannels'] > 0:
-                            print(f"Audio input device found: {device_info['name']}")
-                            found_device = True
-                            break
-                    p.terminate()
-                    if not found_device:
-                        print("No audio input device detected. Please connect a microphone.")
-                        return False
-                    return True
-                except Exception as e:
-                    msg = f"\nERROR: PyAudio failed to initialize or find audio devices: {e}"
-                    print(msg)
-                    raise Exception(msg + "\nPlease ensure 'portaudio' is installed and your microphone is connected and accessible.")
-            else: # For web mode, client handles microphone access
-                print("Skipping audio device check for web mode (client handles microphone).")
-                return True # Assume client will handle it
+    @staticmethod
+    def check_audio_device():
+        if PYQT_AVAILABLE: # Only check audio device for GUI mode
+            try:
+                p = pyaudio.PyAudio()
+                device_count = p.get_device_count()
+                found_device = False
+                for i in range(device_count):
+                    device_info = p.get_device_by_index(i)
+                    if device_info['maxInputChannels'] > 0:
+                        print(f"Audio input device found: {device_info['name']}")
+                        found_device = True
+                        break
+                p.terminate()
+                if not found_device:
+                    print("No audio input device detected. Please connect a microphone.")
+                    return False
+                return True
+            except Exception as e:
+                msg = f"\nERROR: PyAudio failed to initialize or find audio devices: {e}"
+                print(msg)
+                raise Exception(msg + "\nPlease ensure 'portaudio' is installed and your microphone is connected and accessible.")
+        else: # For web mode, client handles microphone access
+            print("Skipping audio device check for web mode (client handles microphone).")
+            return True # Assume client will handle it
 
 
-    # --- PyQt5 GUI Application (Conditional) ---
-    if PYQT_AVAILABLE:
-        class SpeechToTextApp(QtWidgets.QWidget):
-            def __init__(self):
-                super().__init__()
+# --- PyQt5 GUI Application (Conditional) ---
+if PYQT_AVAILABLE:
+    class SpeechToTextApp(QtWidgets.QWidget):
+        def __init__(self):
+            super().__init__()
 
-                self.setWindowTitle("Speech to Text Application")
-                self.setGeometry(100, 100, 600, 800)
+            self.setWindowTitle("Speech to Text Application")
+            self.setGeometry(100, 100, 600, 800)
 
-                self.layout = QtWidgets.QVBoxLayout(self)
-                self.adjustable_buttons = []
+            self.layout = QtWidgets.QVBoxLayout(self)
+            self.adjustable_buttons = []
 
-                self.text_area = QtWidgets.QTextEdit(self)
-                self.text_area.setReadOnly(True)
-                self.text_area.setStyleSheet("font-size: 14pt; background-color: #f0f0f0;")
-                self.layout.addWidget(self.text_area)
+            self.text_area = QtWidgets.QTextEdit(self)
+            self.text_area.setReadOnly(True)
+            self.text_area.setStyleSheet("font-size: 14pt; background-color: #f0f0f0;")
+            self.layout.addWidget(self.text_area)
 
-                self.model_combo_box = QtWidgets.QComboBox(self)
-                self.available_models = MODEL_URLS
-                self.model_combo_box.addItems(self.available_models.keys())
-                self.layout.addWidget(QtWidgets.QLabel("Select Speech Model:"))
-                self.layout.addWidget(self.model_combo_box)
+            self.model_combo_box = QtWidgets.QComboBox(self)
+            self.available_models = MODEL_URLS
+            self.model_combo_box.addItems(self.available_models.keys())
+            self.layout.addWidget(QtWidgets.QLabel("Select Speech Model:"))
+            self.layout.addWidget(self.model_combo_box)
 
-                self.show_requirements_button = self._create_button("Show Model Requirements", self.show_model_requirements)
-                self.layout.addWidget(self.show_requirements_button)
+            self.show_requirements_button = self._create_button("Show Model Requirements", self.show_model_requirements)
+            self.layout.addWidget(self.show_requirements_button)
 
-                self.width_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, self) # Qt5 Enum
-                self.width_slider.setRange(50, 400)
-                self.width_slider.setValue(150)
-                self.width_slider.setToolTip("Adjust Button Width")
-                self.width_slider.valueChanged.connect(self.adjust_button_width)
-                self.layout.addWidget(QtWidgets.QLabel("Adjust Button Width:"))
-                self.layout.addWidget(self.width_slider)
+            self.width_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, self)
+            self.width_slider.setRange(50, 400)
+            self.width_slider.setValue(150)
+            self.width_slider.setToolTip("Adjust Button Width")
+            self.width_slider.valueChanged.connect(self.adjust_button_width)
+            self.layout.addWidget(QtWidgets.QLabel("Adjust Button Width:"))
+            self.layout.addWidget(self.width_slider)
 
-                self.height_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, self) # Qt5 Enum
-                self.height_slider.setRange(20, 80)
-                self.height_slider.setValue(40)
-                self.height_slider.setToolTip("Adjust Button Height")
-                self.height_slider.valueChanged.connect(self.adjust_button_height)
-                self.layout.addWidget(QtWidgets.QLabel("Adjust Button Height:"))
-                self.layout.addWidget(self.height_slider)
+            self.height_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, self)
+            self.height_slider.setRange(20, 80)
+            self.height_slider.setValue(40)
+            self.height_slider.setToolTip("Adjust Button Height")
+            self.height_slider.valueChanged.connect(self.adjust_button_height)
+            self.layout.addWidget(QtWidgets.QLabel("Adjust Button Height:"))
+            self.layout.addWidget(self.height_slider)
 
-                self.transparency_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, self) # Qt5 Enum
-                self.transparency_slider.setRange(0, 100)
-                self.transparency_slider.setValue(100)
-                self.transparency_slider.setToolTip("Adjust Transparency")
-                self.transparency_slider.valueChanged.connect(self.adjust_transparency)
-                self.layout.addWidget(QtWidgets.QLabel("Adjust Transparency:"))
-                self.layout.addWidget(self.transparency_slider)
+            self.transparency_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal, self)
+            self.transparency_slider.setRange(0, 100)
+            self.transparency_slider.setValue(100)
+            self.transparency_slider.setToolTip("Adjust Transparency")
+            self.transparency_slider.valueChanged.connect(self.adjust_transparency)
+            self.layout.addWidget(QtWidgets.QLabel("Adjust Transparency:"))
+            self.layout.addWidget(self.transparency_slider)
 
-                self.download_button = self._create_button("Download Selected Model", self.download_model)
-                self.start_button = self._create_button("Start Listening (Offline)", self.start_listening)
-                self.online_button = self._create_button("Go Online", self.toggle_online_mode)
-                self.stop_button = self._create_button("Stop Listening", self.stop_listening)
-                self.save_to_file_button = self._create_button("Save to File: OFF", self.toggle_save_to_file)
-                self.copy_to_clipboard_button = self._create_button("Copy Last Phrase to Clipboard", self.copy_last_phrase_to_clipboard)
-                self.uninstall_button = self._create_button("Uninstall", self.run_uninstaller)
-                self.screenshot_button = self._create_button("Take Screenshot", self.take_screenshot)
-                self.about_button = self._create_button("About", self.show_about_dialog)
-                self.quit_button = self._create_button("Quit", self.close)
+            self.download_button = self._create_button("Download Selected Model", self.download_model)
+            self.start_button = self._create_button("Start Listening (Offline)", self.start_listening)
+            self.online_button = self._create_button("Go Online", self.toggle_online_mode)
+            self.stop_button = self._create_button("Stop Listening", self.stop_listening)
+            self.save_to_file_button = self._create_button("Save to File: OFF", self.toggle_save_to_file)
+            self.copy_to_clipboard_button = self._create_button("Copy Last Phrase to Clipboard", self.copy_last_phrase_to_clipboard)
+            self.uninstall_button = self._create_button("Uninstall", self.run_uninstaller)
+            self.screenshot_button = self._create_button("Take Screenshot", self.take_screenshot)
+            self.about_button = self._create_button("About", self.show_about_dialog)
+            self.quit_button = self._create_button("Quit", self.close)
 
-                for button in self.adjustable_buttons:
-                    self.layout.addWidget(button)
+            for button in self.adjustable_buttons:
+                self.layout.addWidget(button)
 
-                self.setLayout(self.layout)
+            self.setLayout(self.layout)
 
-                # Perform system requirements check before launching the GUI
-                try:
-                    SystemRequirements.check_python_version()
-                    SystemRequirements.check_dependencies() # This now includes PyAudio init check
-                except Exception as e:
-                    QMessageBox.critical(self, "System Requirements Error", str(e))
-                    print(f"System requirements check failed: {e}")
-                    sys.exit(1) # Exit if critical requirements are not met
+            # Initialize PyAudio here, after checking system requirements
+            self.p = pyaudio.PyAudio()
+            self.stream = None
+            self.is_listening = False
+            self.online_mode = False
 
-                # Initialize PyAudio here, after checking system requirements
-                self.p = pyaudio.PyAudio()
-                self.stream = None
-                self.is_listening = False
-                self.online_mode = False
+            self.model = None
+            self.recognizer = None
+            
+            self.save_file_path = os.path.expanduser("~/Documents/recognized_speech.txt")
+            self.is_saving_to_file = False
+            self.output_file = None
+            self.last_recognized_phrase = ""
+            self._last_partial_len = 0
 
-                self.model = None
-                self.recognizer = None
-                
-                self.save_file_path = os.path.expanduser("~/Documents/recognized_speech.txt")
-                self.is_saving_to_file = False
-                self.output_file = None
-                self.last_recognized_phrase = ""
-                self._last_partial_len = 0
+            self.model_requirements = MODEL_REQUIREMENTS
 
-                self.model_requirements = MODEL_REQUIREMENTS
+            self.adjust_button_width(self.width_slider.value())
+            self.adjust_button_height(self.height_slider.value())
 
-                self.adjust_button_width(self.width_slider.value())
-                self.adjust_button_height(self.height_slider.value())
+            self.create_desktop_shortcut()
 
-                self.create_desktop_shortcut()
+            self.show()
 
-                self.show()
+        def _create_button(self, text, handler):
+            button = QtWidgets.QPushButton(text, self)
+            button.clicked.connect(handler)
+            self.adjustable_buttons.append(button)
+            return button
 
-            def _create_button(self, text, handler):
-                button = QtWidgets.QPushButton(text, self)
-                button.clicked.connect(handler)
-                self.adjustable_buttons.append(button)
-                return button
+        def download_model(self):
+            model_name = self.model_combo_box.currentText()
+            model_url = self.available_models[model_name]
+            model_dir_name = model_name.replace(" ", "_").lower()
+            full_model_path = os.path.join(MODEL_BASE_DIR, model_dir_name)
 
-            def download_model(self):
-                model_name = self.model_combo_box.currentText()
-                model_url = self.available_models[model_name]
-                model_dir_name = model_name.replace(" ", "_").lower()
-                full_model_path = os.path.join(MODEL_BASE_DIR, model_dir_name)
+            print(f"Desktop: Starting download for model: {model_name}")
 
-                print(f"Desktop: Starting download for model: {model_name}")
+            if not os.path.exists(full_model_path):
+                os.makedirs(full_model_path)
 
-                if not os.path.exists(full_model_path):
-                    os.makedirs(full_model_path)
+            if os.path.exists(os.path.join(full_model_path, "model")):
+                self.text_area.append(f"Model '{model_name}' already exists locally.")
+                print(f"Desktop: Model '{model_name}' already exists locally.")
+                return
 
-                if os.path.exists(os.path.join(full_model_path, "model")):
-                    self.text_area.append(f"Model '{model_name}' already exists locally.")
-                    print(f"Desktop: Model '{model_name}' already exists locally.")
+            model_zip_path = os.path.join(full_model_path, f"{model_dir_name}.zip")
+
+            self.text_area.append(f"Downloading {model_name} model...")
+            QtWidgets.QApplication.processEvents()
+
+            try:
+                response = requests.get(model_url, stream=True)
+                if response.status_code == 200:
+                    total_size = int(response.headers.get('content-length', 0))
+                    downloaded_size = 0
+                    with open(model_zip_path, 'wb') as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                            downloaded_size += len(chunk)
+
+                    self.text_area.append(f"Model downloaded as {model_zip_path}.")
+                    print(f"Desktop: Model downloaded successfully: {model_zip_path}")
+
+                    self.text_area.append(f"Extracting {model_name} model...")
+                    QtWidgets.QApplication.processEvents()
+                    with zipfile.ZipFile(model_zip_path, 'r') as zip_ref:
+                        for member in zip_ref.namelist():
+                            zip_root_dir = member.split(os.sep)[0] + os.sep if os.sep in member else ""
+                            relative_path_in_zip = os.path.relpath(member, zip_root_dir) if zip_root_dir else member
+                            extracted_path = os.path.join(full_model_path, relative_path_in_zip)
+                            os.makedirs(os.path.dirname(extracted_path), exist_ok=True)
+                            if not member.endswith('/'):
+                                with open(extracted_path, "wb") as outfile:
+                                    outfile.write(zip_ref.read(member))
+
+                    self.text_area.append(f"Model extracted to {full_model_path}.")
+                    print(f"Desktop: Model extracted to {full_model_path}")
+
+                    os.remove(model_zip_path)
+                    print(f"Desktop: Removed zip file: {model_zip_path}")
+
+                else:
+                    self.text_area.append(f"Failed to download model. Status code: {response.status_code}")
+                    print(f"Desktop: Download failed: Status code {response.status_code}")
+            except Exception as e:
+                self.text_area.append(f"Error downloading or extracting model: {e}")
+                print(f"Desktop: Error during model download/extraction: {e}")
+
+        def check_system_requirements(self):
+            try:
+                SystemRequirements.check_python_version()
+                SystemRequirements.check_dependencies()
+                # Audio device check is now handled within SystemRequirements.check_dependencies
+                # and will raise an exception if PyAudio fails to initialize.
+                print("All system requirements met.")
+            except Exception as e:
+                QMessageBox.critical(self, "System Requirements Error", str(e))
+                print(f"System requirements check failed: {e}")
+                sys.exit(1)
+
+        def start_listening(self):
+            if self.is_listening:
+                print("Already listening.")
+                return
+
+            print("Starting listening process...")
+            self.is_listening = True
+            self.start_button.setStyleSheet("background-color: green; color: white;")
+
+            model_name = self.model_combo_box.currentText()
+            model_dir_name = model_name.replace(" ", "_").lower()
+            vosk_model_path = os.path.join(MODEL_BASE_DIR, model_dir_name, "model")
+
+            if not self.online_mode:
+                if not os.path.exists(vosk_model_path):
+                    QMessageBox.warning(self, "Model Missing",
+                                        f"Vosk model for '{model_name}' not found at {vosk_model_path}.\n"
+                                        "Please download and extract it first.")
+                    self.stop_listening()
                     return
 
-                model_zip_path = os.path.join(full_model_path, f"{model_dir_name}.zip")
-
-                self.text_area.append(f"Downloading {model_name} model...")
-                QtWidgets.QApplication.processEvents()
-
                 try:
-                    response = requests.get(model_url, stream=True)
-                    if response.status_code == 200:
-                        total_size = int(response.headers.get('content-length', 0))
-                        downloaded_size = 0
-                        with open(model_zip_path, 'wb') as f:
-                            for chunk in response.iter_content(chunk_size=8192):
-                                f.write(chunk)
-                                downloaded_size += len(chunk)
-
-                        self.text_area.append(f"Model downloaded as {model_zip_path}.")
-                        print(f"Desktop: Model downloaded successfully: {model_zip_path}")
-
-                        self.text_area.append(f"Extracting {model_name} model...")
-                        QtWidgets.QApplication.processEvents()
-                        with zipfile.ZipFile(model_zip_path, 'r') as zip_ref:
-                            for member in zip_ref.namelist():
-                                zip_root_dir = member.split(os.sep)[0] + os.sep if os.sep in member else ""
-                                relative_path_in_zip = os.path.relpath(member, zip_root_dir) if zip_root_dir else member
-                                extracted_path = os.path.join(full_model_path, relative_path_in_zip)
-                                os.makedirs(os.path.dirname(extracted_path), exist_ok=True)
-                                if not member.endswith('/'):
-                                    with open(extracted_path, "wb") as outfile:
-                                        outfile.write(zip_ref.read(member))
-
-                        self.text_area.append(f"Model extracted to {full_model_path}.")
-                        print(f"Desktop: Model extracted to {full_model_path}")
-
-                        os.remove(model_zip_path)
-                        print(f"Desktop: Removed zip file: {model_zip_path}")
-
-                    else:
-                        self.text_area.append(f"Failed to download model. Status code: {response.status_code}")
-                        print(f"Desktop: Download failed: Status code {response.status_code}")
+                    if self.model is None or (self.model and self.model.path != vosk_model_path):
+                        self.model = Model(vosk_model_path)
+                        self.recognizer = KaldiRecognizer(self.model, 16000)
+                        print(f"Desktop: Vosk Model loaded: {vosk_model_path}")
                 except Exception as e:
-                    self.text_area.append(f"Error downloading or extracting model: {e}")
-                    print(f"Desktop: Error during model download/extraction: {e}")
-
-            def check_system_requirements(self):
-                try:
-                    SystemRequirements.check_python_version()
-                    SystemRequirements.check_dependencies()
-                    # Audio device check is now handled within SystemRequirements.check_dependencies
-                    # and will raise an exception if PyAudio fails to initialize.
-                    print("All system requirements met.")
-                except Exception as e:
-                    QMessageBox.critical(self, "System Requirements Error", str(e))
-                    print(f"System requirements check failed: {e}")
-                    sys.exit(1)
-
-            def start_listening(self):
-                if self.is_listening:
-                    print("Already listening.")
+                    QMessageBox.critical(self, "Vosk Model Error", f"Failed to load Vosk model: {e}")
+                    print(f"Desktop: Error loading Vosk model: {e}")
+                    self.stop_listening()
                     return
+            try:
+                if self.stream is not None:
+                    self.stream.stop_stream()
+                    self.stream.close()
 
-                print("Starting listening process...")
-                self.is_listening = True
-                self.start_button.setStyleSheet("background-color: green; color: white;")
+                self.stream = self.p.open(format=pyaudio.paInt16,
+                                            channels=1,
+                                            rate=16000,
+                                            input=True,
+                                            frames_per_buffer=8000)
+                self.stream.start_stream()
+                print("Audio stream started.")
 
-                model_name = self.model_combo_box.currentText()
-                model_dir_name = model_name.replace(" ", "_").lower()
-                vosk_model_path = os.path.join(MODEL_BASE_DIR, model_dir_name, "model")
-
-                if not self.online_mode:
-                    if not os.path.exists(vosk_model_path):
-                        QMessageBox.warning(self, "Model Missing",
-                                            f"Vosk model for '{model_name}' not found at {vosk_model_path}.\n"
-                                            "Please download and extract it first.")
-                        self.stop_listening()
-                        return
-
-                    try:
-                        if self.model is None or (self.model and self.model.path != vosk_model_path):
-                            self.model = Model(vosk_model_path)
-                            self.recognizer = KaldiRecognizer(self.model, 16000)
-                            print(f"Desktop: Vosk Model loaded: {vosk_model_path}")
-                    except Exception as e:
-                        QMessageBox.critical(self, "Vosk Model Error", f"Failed to load Vosk model: {e}")
-                        print(f"Desktop: Error loading Vosk model: {e}")
-                        self.stop_listening()
-                        return
-                try:
-                    if self.stream is not None:
-                        self.stream.stop_stream()
-                        self.stream.close()
-
-                    self.stream = self.p.open(format=pyaudio.paInt16,
-                                                channels=1,
-                                                rate=16000,
-                                                input=True,
-                                                frames_per_buffer=8000)
-                    self.stream.start_stream()
-                    print("Audio stream started.")
-
-                    if self.online_mode:
-                        self.listening_thread = QtCore.QThread()
-                        self.listener_worker = OnlineListener(self.stream)
-                        self.listener_worker.moveToThread(self.listening_thread)
-                        self.listening_thread.started.connect(self.listener_worker.run)
-                        self.listener_worker.text_recognized.connect(self.update_text_area_and_save)
-                        self.listener_worker.error_occurred.connect(self.handle_online_error)
-                        self.listener_worker.finished.connect(self.listening_thread.quit)
-                        self.listener_worker.finished.connect(self.listener_worker.deleteLater)
-                        self.listening_thread.finished.connect(self.listening_thread.deleteLater)
-                        self.listening_thread.start()
-                        print("Listening online...")
-                    else:
-                        self.listening_thread = QtCore.QThread()
-                        self.listener_worker = OfflineListener(self.stream, self.recognizer)
-                        self.listener_worker.moveToThread(self.listening_thread)
-                        self.listening_thread.started.connect(self.listener_worker.run)
-                        self.listener_worker.text_recognized.connect(self.update_text_area_and_save)
-                        self.listener_worker.partial_text_recognized.connect(self.update_partial_text_area)
-                        self.listener_worker.error_occurred.connect(self.handle_offline_error)
-                        self.listener_worker.finished.connect(self.listening_thread.quit)
-                        self.listener_worker.finished.connect(self.listener_worker.deleteLater)
-                        self.listening_thread.finished.connect(self.listening_thread.deleteLater)
-                        self.listening_thread.start()
-                        print("Listening offline...")
-
-                except Exception as e:
-                    QMessageBox.critical(self, "Audio Stream Error", f"Error starting audio stream: {e}")
-                    print(f"Error starting audio stream: {e}")
-                    self.stop_listening()
-
-            def stop_listening(self):
-                if self.is_listening:
-                    self.is_listening = False
-                    self.start_button.setStyleSheet("background-color: red; color: white;")
-
-                    if hasattr(self, 'listening_thread') and self.listening_thread.isRunning():
-                        self.listener_worker.stop()
-                        self.listening_thread.wait(2000)
-                        if self.listening_thread.isRunning():
-                            self.listening_thread.terminate()
-                            self.listening_thread.wait(500)
-                        print("Listening thread stopped.")
-
-                    if self.stream:
-                        self.stream.stop_stream()
-                        self.stream.close()
-                        self.stream = None
-                        print("Audio stream stopped and closed.")
-
-                    if not self.online_mode and self.recognizer:
-                        final_result = self.recognizer.FinalResult()
-                        if final_result:
-                            try:
-                                final_dict = json.loads(final_result)
-                                final_text = final_dict.get('text', '').strip()
-                                if final_text:
-                                    self.update_text_area_and_save(final_text)
-                                    print(f"Final offline result: {final_text}")
-                            except json.JSONDecodeError as e:
-                                print(f"Error decoding final Vosk result: {e} - Raw: {final_result}")
-
-            @QtCore.pyqtSlot(str)
-            def update_text_area_and_save(self, text):
-                self.text_area.append(text)
-                self.text_area.verticalScrollBar().setValue(self.text_area.verticalScrollBar().maximum())
-                self.last_recognized_phrase = text
-
-                if self.is_saving_to_file and self.output_file:
-                    try:
-                        self.output_file.write(text + " ")
-                        self.output_file.flush()
-                        print(f"Saved to file: {text}")
-                    except Exception as e:
-                        QMessageBox.warning(self, "File Save Error", f"Error saving to file: {e}")
-                        print(f"Error saving to file: {e}")
-                        self.toggle_save_to_file()
-
-            def toggle_save_to_file(self):
-                self.is_saving_to_file = not self.is_saving_to_file
-                if self.is_saving_to_file:
-                    try:
-                        save_file_path = os.path.expanduser("~/Documents/recognized_speech_web.txt")
-                        os.makedirs(os.path.dirname(save_file_path), exist_ok=True)
-                        web_output_file = open(save_file_path, "a", encoding="utf-8")
-                        print(f"Web: Started saving recognized text to {save_file_path}")
-                        return jsonify({"status": "on", "message": f"Saving to {save_file_path}"}), 200
-                    except Exception as e:
-                        web_is_saving_to_file = False
-                        print(f"Web: Error opening file for saving: {e}")
-                        return jsonify({"status": "error", "message": f"Could not open file for saving: {e}"}), 500
-                else:
-                    if web_output_file:
-                        web_output_file.close()
-                        web_output_file = None
-                    print("Web: Stopped saving recognized text.")
-                    return jsonify({"status": "off", "message": "Stopped saving to file."}), 200
-
-            def copy_last_phrase_to_clipboard(self):
-                try:
-                    import pyperclip
-                    if self.last_recognized_phrase:
-                        try:
-                            pyperclip.copy(self.last_recognized_phrase)
-                            QMessageBox.information(self, "Copied to Clipboard", "Last recognized phrase copied to clipboard!")
-                            print(f"Copied to clipboard: '{self.last_recognized_phrase}'")
-                        except pyperclip.PyperclipException as e:
-                            QMessageBox.warning(self, "Clipboard Error", f"Could not copy to clipboard: {e}\n"
-                                                                        "Please ensure you have xclip or xsel installed on Linux, "
-                                                                        "or that a clipboard tool is available on your OS.")
-                            print(f"Clipboard error: {e}")
-                    else:
-                        QMessageBox.information(self, "No Text", "No text has been recognized yet to copy.")
-                        print("No text to copy to clipboard.")
-                except ImportError:
-                    QMessageBox.warning(self, "Missing Module", "The 'pyperclip' module is not installed. Please install it to use this feature.")
-                    print("pyperclip module not found.")
-
-            @QtCore.pyqtSlot(str)
-            def update_partial_text_area(self, partial_text):
-                current_text = self.text_area.toPlainText().splitlines()
-                if len(current_text) > 0:
-                    if self._last_partial_len > 0:
-                        current_text[-1] = partial_text
-                    else:
-                        current_text.append(partial_text)
-                    self.text_area.setPlainText('\n'.join(current_text))
-                else:
-                    self.text_area.setPlainText(partial_text)
-
-                self._last_partial_len = len(partial_text)
-                self.text_area.verticalScrollBar().setValue(self.text_area.verticalScrollBar().maximum())
-
-            @QtCore.pyqtSlot(str)
-            def handle_online_error(self, error_message):
-                QMessageBox.warning(self, "Online Recognition Error", error_message)
-                print(f"Online recognition error: {error_message}")
-                self.stop_listening()
-
-            @QtCore.pyqtSlot(str)
-            def handle_offline_error(self, error_message):
-                QMessageBox.warning(self, "Offline Recognition Error", error_message)
-                print(f"Offline recognition error: {error_message}")
-                self.stop_listening()
-
-            def toggle_online_mode(self):
-                if self.is_listening:
-                    self.stop_listening()
-                    QtCore.QThread.msleep(100)
-
-                self.online_mode = not self.online_mode
                 if self.online_mode:
-                    self.start_button.setText("Start Listening (Online)")
-                    self.online_button.setText("Go Offline")
-                    print("Switched to Online Mode.")
+                    self.listening_thread = QtCore.QThread()
+                    self.listener_worker = OnlineListener(self.stream)
+                    self.listener_worker.moveToThread(self.listening_thread)
+                    self.listening_thread.started.connect(self.listener_worker.run)
+                    self.listener_worker.text_recognized.connect(self.update_text_area_and_save)
+                    self.listener_worker.error_occurred.connect(self.handle_online_error)
+                    self.listener_worker.finished.connect(self.listening_thread.quit)
+                    self.listener_worker.finished.connect(self.listener_worker.deleteLater)
+                    self.listening_thread.finished.connect(self.listening_thread.deleteLater)
+                    self.listening_thread.start()
+                    print("Listening online...")
                 else:
-                    self.start_button.setText("Start Listening (Offline)")
-                    self.online_button.setText("Go Online")
-                    print("Switched to Offline Mode.")
+                    self.listening_thread = QtCore.QThread()
+                    self.listener_worker = OfflineListener(self.stream, self.recognizer)
+                    self.listener_worker.moveToThread(self.listening_thread)
+                    self.listening_thread.started.connect(self.listener_worker.run)
+                    self.listener_worker.text_recognized.connect(self.update_text_area_and_save)
+                    self.listener_worker.partial_text_recognized.connect(self.update_partial_text_area)
+                    self.listener_worker.error_occurred.connect(self.handle_offline_error)
+                    self.listener_worker.finished.connect(self.listening_thread.quit)
+                    self.listener_worker.finished.connect(self.listener_worker.deleteLater)
+                    self.listening_thread.finished.connect(self.listening_thread.deleteLater)
+                    self.listening_thread.start()
+                    print("Listening offline...")
 
-            def adjust_button_width(self, value):
-                for button in self.adjustable_buttons:
-                    button.setMinimumWidth(value)
-                    button.setMaximumWidth(value)
-                    button.setSizePolicy(QtWidgets.QSizePolicy.Fixed, button.sizePolicy().verticalPolicy()) # Qt5 Enum
-                self.layout.invalidate()
-                self.layout.activate()
-
-            def adjust_button_height(self, value):
-                for button in self.adjustable_buttons:
-                    button.setMinimumHeight(value)
-                    button.setMaximumHeight(value)
-                    button.setSizePolicy(button.sizePolicy().horizontalPolicy(), QtWidgets.QSizePolicy.Fixed) # Qt5 Enum
-                self.layout.invalidate()
-                self.layout.activate()
-
-            def adjust_transparency(self, value):
-                alpha = value / 100.0
-                self.setWindowOpacity(alpha)
-                print(f"Transparency adjusted to: {alpha}")
-
-            def create_desktop_shortcut(self):
-                # Ensure the executable path is correct for the Python interpreter being used
-                python_executable = sys.executable # This gets the current Python interpreter path
-                script_path = os.path.abspath(__file__) # Path to the current script
-
-                shortcut_content = f"""[Desktop Entry]
-    Version=1.0
-    Type=Application
-    Name=Speech to Text
-    Exec={python_executable} {script_path} gui
-    Icon={os.path.abspath('icon.png')}
-    Terminal=false
-    Categories=Utility;
-    """
-                shortcut_path = os.path.expanduser("~/.local/share/applications/speech_to_text.desktop")
-
-                try:
-                    os.makedirs(os.path.dirname(shortcut_path), exist_ok=True)
-                    with open(shortcut_path, 'w') as shortcut_file:
-                        shortcut_file.write(shortcut_content.strip())
-                    os.chmod(shortcut_path, 0o755)
-                    print("Desktop shortcut created at ~/.local/share/applications/speech_to_text.desktop")
-                except Exception as e:
-                    print(f"Error creating desktop shortcut: {e}")
-
-            def run_uninstaller(self):
-                reply = QMessageBox.question(self, 'Uninstall Confirmation',
-                                            "Are you sure you want to uninstall the application? This will run 'uninstall.py'.",
-                                            QMessageBox.Yes | QMessageBox.No, # Qt5 Enum
-                                            QMessageBox.No) # Qt5 Enum
-                if reply == QMessageBox.Yes: # Qt5 Enum
-                    import subprocess
-                    try:
-                        subprocess.Popen(['python3', os.path.join(os.path.dirname(os.path.abspath(__file__)), "uninstall.py")])
-                        print("Uninstallation process initiated.")
-                        self.close()
-                    except Exception as e:
-                        QMessageBox.critical(self, "Uninstall Error", f"Failed to start uninstaller: {e}")
-                        print(f"Error starting uninstaller: {e}")
-                else:
-                    print("Uninstallation cancelled.")
-
-            def closeEvent(self, event):
+            except Exception as e:
+                QMessageBox.critical(self, "Audio Stream Error", f"Error starting audio stream: {e}")
+                print(f"Error starting audio stream: {e}")
                 self.stop_listening()
-                if self.is_saving_to_file and self.output_file:
-                    self.output_file.close()
-                    print("Closed output file.")
-                self.p.terminate()
-                print("Application closed.")
-                event.accept()
 
-            def take_screenshot(self):
-                pixmap = QPixmap(self.size())
-                self.render(pixmap)
+        def stop_listening(self):
+            if self.is_listening:
+                self.is_listening = False
+                self.start_button.setStyleSheet("background-color: red; color: white;")
 
-                default_screenshot_dir = os.path.expanduser("~/Pictures")
-                if not os.path.exists(default_screenshot_dir):
-                    os.makedirs(default_screenshot_dir)
-                screenshot_path = os.path.join(default_screenshot_dir, "speech_to_text_screenshot.png")
+                if hasattr(self, 'listening_thread') and self.listening_thread.isRunning():
+                    self.listener_worker.stop()
+                    self.listening_thread.wait(2000)
+                    if self.listening_thread.isRunning():
+                        self.listening_thread.terminate()
+                        self.listening_thread.wait(500)
+                    print("Listening thread stopped.")
 
-                pixmap.save(screenshot_path, "PNG")
-                print(f"Screenshot saved to: {screenshot_path}")
-                QMessageBox.information(self, "Screenshot Taken", f"Screenshot saved to:\n{screenshot_path}")
-
-            def show_model_requirements(self):
-                model_name = self.model_combo_box.currentText()
-                requirements = self.model_requirements.get(model_name, "No requirements available.")
-                QMessageBox.information(self, "Model Requirements", requirements)
-
-            def show_about_dialog(self):
-                about_message = (
-                    "Speech to Text Application\n\n"
-                    "This application was developed with the assistance of OpenAI's language model, which provided guidance and support throughout the programming process.\n\n"
-                    "We would like to express our gratitude to the dedicated team behind OpenAI and the resources available at the OpenAI platform. "
-                    "Their commitment to improving artificial intelligence and enhancing human-computer interaction has has made such projects possible. "
-                    "A special thanks to the developers and contributors of the Vosk speech recognition library, PyQt5, and all dependencies used in this project. "
-                    "Your hard work and dedication to open-source software uphold the ideals of collaboration and innovation in the tech community. "
-                    "Thank you for using our application! Stay curious and keep coding! 😊"
-                )
-                QMessageBox.information(self, "About", about_message)
-
-        class OnlineListener(QtCore.QObject):
-            text_recognized = QtCore.pyqtSignal(str)
-            error_occurred = QtCore.pyqtSignal(str)
-            finished = QtCore.pyqtSignal()
-
-            def __init__(self, stream):
-                super().__init__()
-                self.stream = stream
-                self.r = sr.Recognizer()
-                self._running = True
-
-            def run(self):
                 if self.stream:
                     self.stream.stop_stream()
                     self.stream.close()
-                    print("Closed main stream for online mode.")
+                    self.stream = None
+                    print("Audio stream stopped and closed.")
 
-                with sr.Microphone(sample_rate=16000) as source:
-                    try:
-                        self.r.adjust_for_ambient_noise(source)
-                        print("Online mode: Adjusted for ambient noise.")
-                    except Exception as e:
-                        print(f"Warning: Could not adjust for ambient noise: {e}")
-
-                    while self._running:
+                if not self.online_mode and self.recognizer:
+                    final_result = self.recognizer.FinalResult()
+                    if final_result:
                         try:
-                            audio = self.r.listen(source, phrase_time_limit=5)
-                            text = self.r.recognize_google(audio)
-                            if text:
-                                self.text_recognized.emit(text)
-                                print(f"Recognized text (online): {text}")
-                        except sr.UnknownValueError:
-                            print("Online: Could not understand audio (no speech detected or ambiguous)")
-                        except sr.RequestError as e:
-                            self.error_occurred.emit(f"Online: Could not request results from service; {e}")
-                            print(f"Online: Could not request results from service; {e}")
-                        except Exception as e:
-                            self.error_occurred.emit(f"An unexpected error occurred in online listener: {e}")
-                            print(f"Online: An unexpected error occurred: {e}")
-                self.finished.emit()
+                            final_dict = json.loads(final_result)
+                            final_text = final_dict.get('text', '').strip()
+                            if final_text:
+                                self.update_text_area_and_save(final_text)
+                                print(f"Final offline result: {final_text}")
+                        except json.JSONDecodeError as e:
+                            print(f"Error decoding final Vosk result: {e} - Raw: {final_result}")
 
-            def stop(self):
-                self._running = False
+        @QtCore.pyqtSlot(str)
+        def update_text_area_and_save(self, text):
+            self.text_area.append(text)
+            self.text_area.verticalScrollBar().setValue(self.text_area.verticalScrollBar().maximum())
+            self.last_recognized_phrase = text
 
-        class OfflineListener(QtCore.QObject):
-            text_recognized = QtCore.pyqtSignal(str)
-            partial_text_recognized = QtCore.pyqtSignal(str)
-            error_occurred = QtCore.pyqtSignal(str)
-            finished = QtCore.pyqtSignal()
+            if self.is_saving_to_file and self.output_file:
+                try:
+                    self.output_file.write(text + " ")
+                    self.output_file.flush()
+                    print(f"Saved to file: {text}")
+                except Exception as e:
+                    QMessageBox.warning(self, "File Save Error", f"Error saving to file: {e}")
+                    print(f"Error saving to file: {e}")
+                    self.toggle_save_to_file()
 
-            def __init__(self, stream, recognizer):
-                super().__init__()
-                self.stream = stream
-                self.recognizer = recognizer
-                self._running = True
+        def toggle_save_to_file(self):
+            self.is_saving_to_file = not self.is_saving_to_file
+            if self.is_saving_to_file:
+                try:
+                    save_file_path = os.path.expanduser("~/Documents/recognized_speech_web.txt")
+                    os.makedirs(os.path.dirname(save_file_path), exist_ok=True)
+                    web_output_file = open(save_file_path, "a", encoding="utf-8")
+                    print(f"Web: Started saving recognized text to {save_file_path}")
+                    return jsonify({"status": "on", "message": f"Saving to {save_file_path}"}), 200
+                except Exception as e:
+                    web_is_saving_to_file = False
+                    print(f"Web: Error opening file for saving: {e}")
+                    return jsonify({"status": "error", "message": f"Could not open file for saving: {e}"}), 500
+            else:
+                if web_output_file:
+                    web_output_file.close()
+                    web_output_file = None
+                print("Web: Stopped saving recognized text.")
+                return jsonify({"status": "off", "message": "Stopped saving to file."}), 200
 
-            def run(self):
-                print("Offline mode: Starting recognition loop.")
+        def copy_last_phrase_to_clipboard(self):
+            try:
+                import pyperclip
+                if self.last_recognized_phrase:
+                    try:
+                        pyperclip.copy(self.last_recognized_phrase)
+                        QMessageBox.information(self, "Copied to Clipboard", "Last recognized phrase copied to clipboard!")
+                        print(f"Copied to clipboard: '{self.last_recognized_phrase}'")
+                    except pyperclip.PyperclipException as e:
+                        QMessageBox.warning(self, "Clipboard Error", f"Could not copy to clipboard: {e}\n"
+                                                                    "Please ensure you have xclip or xsel installed on Linux, "
+                                                                    "or that a clipboard tool is available on your OS.")
+                        print(f"Clipboard error: {e}")
+                else:
+                    QMessageBox.information(self, "No Text", "No text has been recognized yet to copy.")
+                    print("No text to copy to clipboard.")
+            except ImportError:
+                QMessageBox.warning(self, "Missing Module", "The 'pyperclip' module is not installed. Please install it to use this feature.")
+                print("pyperclip module not found.")
+
+        @QtCore.pyqtSlot(str)
+        def update_partial_text_area(self, partial_text):
+            current_text = self.text_area.toPlainText().splitlines()
+            if len(current_text) > 0:
+                if self._last_partial_len > 0:
+                    current_text[-1] = partial_text
+                else:
+                    current_text.append(partial_text)
+                self.text_area.setPlainText('\n'.join(current_text))
+            else:
+                self.text_area.setPlainText(partial_text)
+
+            self._last_partial_len = len(partial_text)
+            self.text_area.verticalScrollBar().setValue(self.text_area.verticalScrollBar().maximum())
+
+        @QtCore.pyqtSlot(str)
+        def handle_online_error(self, error_message):
+            QMessageBox.warning(self, "Online Recognition Error", error_message)
+            print(f"Online recognition error: {error_message}")
+            self.stop_listening()
+
+        @QtCore.pyqtSlot(str)
+        def handle_offline_error(self, error_message):
+            QMessageBox.warning(self, "Offline Recognition Error", error_message)
+            print(f"Offline recognition error: {error_message}")
+            self.stop_listening()
+
+        def toggle_online_mode(self):
+            if self.is_listening:
+                self.stop_listening()
+                QtCore.QThread.msleep(100)
+
+            self.online_mode = not self.online_mode
+            if self.online_mode:
+                self.start_button.setText("Start Listening (Online)")
+                self.online_button.setText("Go Offline")
+                print("Switched to Online Mode.")
+            else:
+                self.start_button.setText("Start Listening (Offline)")
+                self.online_button.setText("Go Online")
+                print("Switched to Offline Mode.")
+
+        def adjust_button_width(self, value):
+            for button in self.adjustable_buttons:
+                button.setMinimumWidth(value)
+                button.setMaximumWidth(value)
+                button.setSizePolicy(QtWidgets.QSizePolicy.Fixed, button.sizePolicy().verticalPolicy())
+            self.layout.invalidate()
+            self.layout.activate()
+
+        def adjust_button_height(self, value):
+            for button in self.adjustable_buttons:
+                button.setMinimumHeight(value)
+                button.setMaximumHeight(value)
+                button.setSizePolicy(button.sizePolicy().horizontalPolicy(), QtWidgets.QSizePolicy.Fixed)
+            self.layout.invalidate()
+            self.layout.activate()
+
+        def adjust_transparency(self, value):
+            alpha = value / 100.0
+            self.setWindowOpacity(alpha)
+            print(f"Transparency adjusted to: {alpha}")
+
+        def create_desktop_shortcut(self):
+            shortcut_content = f"""[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Speech to Text
+Exec=python3 {os.path.abspath(__file__)}
+Icon={os.path.abspath('icon.png')}
+Terminal=false
+Categories=Utility;
+"""
+            shortcut_path = os.path.expanduser("~/.local/share/applications/speech_to_text.desktop")
+
+            try:
+                os.makedirs(os.path.dirname(shortcut_path), exist_ok=True)
+                with open(shortcut_path, 'w') as shortcut_file:
+                    shortcut_file.write(shortcut_content.strip())
+                os.chmod(shortcut_path, 0o755)
+                print("Desktop shortcut created at ~/.local/share/applications/speech_to_text.desktop")
+            except Exception as e:
+                print(f"Error creating desktop shortcut: {e}")
+
+        def run_uninstaller(self):
+            reply = QMessageBox.question(self, 'Uninstall Confirmation',
+                                        "Are you sure you want to uninstall the application? This will run 'uninstall.py'.",
+                                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if reply == QMessageBox.Yes:
+                import subprocess
+                try:
+                    subprocess.Popen(['python3', os.path.join(os.path.dirname(os.path.abspath(__file__)), "uninstall.py")])
+                    print("Uninstallation process initiated.")
+                    self.close()
+                except Exception as e:
+                    QMessageBox.critical(self, "Uninstall Error", f"Failed to start uninstaller: {e}")
+                    print(f"Error starting uninstaller: {e}")
+            else:
+                print("Uninstallation cancelled.")
+
+        def closeEvent(self, event):
+            self.stop_listening()
+            if self.is_saving_to_file and self.output_file:
+                self.output_file.close()
+                print("Closed output file.")
+            self.p.terminate()
+            print("Application closed.")
+            event.accept()
+
+        def take_screenshot(self):
+            pixmap = QPixmap(self.size())
+            self.render(pixmap)
+
+            default_screenshot_dir = os.path.expanduser("~/Pictures")
+            if not os.path.exists(default_screenshot_dir):
+                os.makedirs(default_screenshot_dir)
+            screenshot_path = os.path.join(default_screenshot_dir, "speech_to_text_screenshot.png")
+
+            pixmap.save(screenshot_path, "PNG")
+            print(f"Screenshot saved to: {screenshot_path}")
+            QMessageBox.information(self, "Screenshot Taken", f"Screenshot saved to:\n{screenshot_path}")
+
+        def show_model_requirements(self):
+            model_name = self.model_combo_box.currentText()
+            requirements = self.model_requirements.get(model_name, "No requirements available.")
+            QMessageBox.information(self, "Model Requirements", requirements)
+
+        def show_about_dialog(self):
+            about_message = (
+                "Speech to Text Application\n\n"
+                "This application was developed with the assistance of OpenAI's language model, which provided guidance and support throughout the programming process.\n\n"
+                "We would like to express our gratitude to the dedicated team behind OpenAI and the resources available at the OpenAI platform. "
+                "Their commitment to improving artificial intelligence and enhancing human-computer interaction has has made such projects possible. "
+                "A special thanks to the developers and contributors of the Vosk speech recognition library, PyQt5, and all dependencies used in this project. "
+                "Your hard work and dedication to open-source software uphold the ideals of collaboration and innovation in the tech community. "
+                "Thank you for using our application! Stay curious and keep coding! 😊"
+            )
+            QMessageBox.information(self, "About", about_message)
+
+    class OnlineListener(QtCore.QObject):
+        text_recognized = QtCore.pyqtSignal(str)
+        error_occurred = QtCore.pyqtSignal(str)
+        finished = QtCore.pyqtSignal()
+
+        def __init__(self, stream):
+            super().__init__()
+            self.stream = stream
+            self.r = sr.Recognizer()
+            self._running = True
+
+        def run(self):
+            if self.stream:
+                self.stream.stop_stream()
+                self.stream.close()
+                print("Closed main stream for online mode.")
+
+            with sr.Microphone(sample_rate=16000) as source:
+                try:
+                    self.r.adjust_for_ambient_noise(source)
+                    print("Online mode: Adjusted for ambient noise.")
+                except Exception as e:
+                    print(f"Warning: Could not adjust for ambient noise: {e}")
+
                 while self._running:
                     try:
-                        data = self.stream.read(4000, exception_on_overflow=False)
-
-                        if not data:
-                            print("No data from stream, stopping offline listener.")
-                            break
-
-                        if self.recognizer.AcceptWaveform(data):
-                            result_json_str = self.recognizer.Result()
-                            if result_json_str:
-                                try:
-                                    result_dict = json.loads(result_json_str)
-                                    text = result_dict.get('text', '').strip()
-                                    if text:
-                                        self.text_recognized.emit(text)
-                                        print(f"Recognized text (offline): {text}")
-                                    self.partial_text_recognized.emit("")
-                                except json.JSONDecodeError as e:
-                                    print(f"Error decoding Vosk result: {e} - Raw: {result_json_str}")
-                                    self.error_occurred.emit(f"Error decoding Vosk result: {e}")
-                        else:
-                            partial_result_json_str = self.recognizer.PartialResult()
-                            if partial_result_json_str:
-                                try:
-                                    partial_dict = json.loads(partial_result_json_str)
-                                    partial_text = partial_dict.get('partial', '').strip()
-                                    if partial_text:
-                                        self.partial_text_recognized.emit(partial_text)
-                                except json.JSONDecodeError as e:
-                                    print(f"Error decoding partial Vosk result: {e} - Raw: {partial_result_json_str}")
-
+                        audio = self.r.listen(source, phrase_time_limit=5)
+                        text = self.r.recognize_google(audio)
+                        if text:
+                            self.text_recognized.emit(text)
+                            print(f"Recognized text (online): {text}")
+                    except sr.UnknownValueError:
+                        print("Online: Could not understand audio (no speech detected or ambiguous)")
+                    except sr.RequestError as e:
+                        self.error_occurred.emit(f"Online: Could not request results from service; {e}")
+                        print(f"Online: Could not request results from service; {e}")
                     except Exception as e:
-                        self.error_occurred.emit(f"An unexpected error occurred in offline listener: {e}")
-                        print(f"Offline: An unexpected error occurred: {e}")
-                self.finished.emit()
+                        self.error_occurred.emit(f"An unexpected error occurred in online listener: {e}")
+                        print(f"Online: An unexpected error occurred: {e}")
+            self.finished.emit()
 
-            def stop(self):
-                self._running = False
+        def stop(self):
+            self._running = False
 
-    # --- Main Execution Block ---
-    if __name__ == "__main__":
-        # Start the Flask application in a separate thread
-        flask_thread = threading.Thread(target=run_flask_app, daemon=True)
-        flask_thread.start()
+    class OfflineListener(QtCore.QObject):
+        text_recognized = QtCore.pyqtSignal(str)
+        partial_text_recognized = QtCore.pyqtSignal(str)
+        error_occurred = QtCore.pyqtSignal(str)
+        finished = QtCore.pyqtSignal()
 
-        run_gui = False
-        if len(sys.argv) > 1:
-            if sys.argv[1].lower() == "gui":
-                run_gui = True
-            elif sys.argv[1].lower() == "web":
-                run_gui = False
-            else:
-                print(f"Unknown argument: {sys.argv[1]}. Defaulting to web-only mode.")
-                print("Usage: python your_script.py [gui|web]")
-                run_gui = False
-        else:
-            print("No mode specified. Defaulting to web-only mode.")
-            print("Usage: python your_script.py [gui|web]")
-        
-        if run_gui:
-            if PYQT_AVAILABLE:
+        def __init__(self, stream, recognizer):
+            super().__init__()
+            self.stream = stream
+            self.recognizer = recognizer
+            self._running = True
+
+        def run(self):
+            print("Offline mode: Starting recognition loop.")
+            while self._running:
                 try:
-                    # System requirements are checked inside SpeechToTextApp's __init__
-                    # This ensures the QMessageBox can be used for errors.
-                    app_qt = QtWidgets.QApplication(sys.argv)
-                    ex = SpeechToTextApp()
-                    sys.exit(app_qt.exec_())
+                    data = self.stream.read(4000, exception_on_overflow=False)
+
+                    if not data:
+                        print("No data from stream, stopping offline listener.")
+                        break
+
+                    if self.recognizer.AcceptWaveform(data):
+                        result_json_str = self.recognizer.Result()
+                        if result_json_str:
+                            try:
+                                result_dict = json.loads(result_json_str)
+                                text = result_dict.get('text', '').strip()
+                                if text:
+                                    self.text_recognized.emit(text)
+                                    print(f"Recognized text (offline): {text}")
+                                self.partial_text_recognized.emit("")
+                            except json.JSONDecodeError as e:
+                                print(f"Error decoding Vosk result: {e} - Raw: {result_json_str}")
+                                self.error_occurred.emit(f"Error decoding Vosk result: {e}")
+                    else:
+                        partial_result_json_str = self.recognizer.PartialResult()
+                        if partial_result_json_str:
+                            try:
+                                partial_dict = json.loads(partial_result_json_str)
+                                partial_text = partial_dict.get('partial', '').strip()
+                                if partial_text:
+                                    self.partial_text_recognized.emit(partial_text)
+                            except json.JSONDecodeError as e:
+                                print(f"Error decoding partial Vosk result: {e} - Raw: {partial_result_json_str}")
+
                 except Exception as e:
-                    print(f"\nCRITICAL GUI STARTUP ERROR: {e}")
-                    import traceback
-                    traceback.print_exc() # Print full traceback for debugging
-                    sys.exit(1) # Exit with an error code
-            else:
-                print("\nGUI mode requested, but PyQt5 is not available. Please ensure PyQt5 is installed.")
-                print("You can try 'pip install PyQt5' and 'pkg install python-dev xorg-xrandr xorg-xprop xorg-xwininfo' (Termux)")
-                print("or 'sudo apt install python3-pyqt5' (Ubuntu) if you wish to use the GUI.")
-                # Keep the Flask server running even if GUI fails to launch
-                while True:
-                    time.sleep(1)
+                    self.error_occurred.emit(f"An unexpected error occurred in offline listener: {e}")
+                    print(f"Offline: An unexpected error occurred: {e}")
+            self.finished.emit()
+
+        def stop(self):
+            self._running = False
+
+# --- Main Execution Block ---
+if __name__ == "__main__":
+    # Start the Flask application in a separate thread
+    flask_thread = threading.Thread(target=run_flask_app, daemon=True)
+    flask_thread.start()
+
+    run_gui = False
+    if len(sys.argv) > 1:
+        if sys.argv[1].lower() == "gui":
+            run_gui = True
+        elif sys.argv[1].lower() == "web":
+            run_gui = False
         else:
-            # If not running GUI, keep the main thread alive for the Flask daemon thread
+            print(f"Unknown argument: {sys.argv[1]}. Defaulting to web-only mode.")
+            print("Usage: python your_script.py [gui|web]")
+            run_gui = False
+    else:
+        print("No mode specified. Defaulting to web-only mode.")
+        print("Usage: python your_script.py [gui|web]")
+    
+    if run_gui:
+        if PYQT_AVAILABLE:
+            try:
+                # Perform system requirements check before launching the GUI
+                SystemRequirements.check_python_version()
+                SystemRequirements.check_dependencies() # This now includes PyAudio init check
+                
+                app_qt = QtWidgets.QApplication(sys.argv)
+                ex = SpeechToTextApp()
+                sys.exit(app_qt.exec_())
+            except Exception as e:
+                print(f"\nCRITICAL GUI STARTUP ERROR: {e}")
+                import traceback
+                traceback.print_exc() # Print full traceback for debugging
+                sys.exit(1) # Exit with an error code
+        else:
+            print("\nGUI mode requested, but PyQt5 is not available. Please ensure PyQt5 is installed.")
+            print("You can try 'pip install PyQt5' and 'pkg install python-dev xorg-xrandr xorg-xprop xorg-xwininfo' (Termux)")
+            print("or 'sudo apt install python3-pyqt5' (Ubuntu) if you wish to use the GUI.")
+            # Keep the Flask server running even if GUI fails to launch
             while True:
                 time.sleep(1)
-
+    else:
+        # If not running GUI, keep the main thread alive for the Flask daemon thread
+        while True:
+            time.sleep(1)
